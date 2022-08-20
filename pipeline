@@ -14,5 +14,32 @@ pipeline {
                 sh 'mvn clean package'
             }
         }
+        stage('artifact push to s3 bucket') {
+            steps {
+                sh 'sudo aws s3 ls'
+                sh 'aws s3 cp /artifact/student-${BUILD_ID}.war s3://test-artifact-pritam'
+            }
+        }
+         stage('deploy on ec2') {
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'a9c8cb50-f9ec-409c-828c-397a141d310e', keyFileVariable: 'global')]) {
+                
+                sh '''
+            sudo ssh -i ${global} -T -o StrictHostKeyChecking=no ubuntu@3.23.20.32 <<EOF
+            sudo apt update -y
+            sudo apt install default-jdk -y 
+            sudo apt install awscli -y 
+            curl -O https://dlcdn.apache.org/tomcat/tomcat-8/v8.5.82/bin/apache-tomcat-8.5.82.tar.gz
+            sudo tar -xvf apache-tomcat-8.5.82.tar.gz -C /opt/ && sudo chmod 777 /opt/apache-tomcat-8.5.82/*  && sudo chown ubuntu: /opt/apache-tomcat-8.5.82/*
+            sudo sh /opt/apache-tomcat-8.5.82/bin/shutdown.sh 
+            aws s3 cp s3://test-artifact-pritam/student-${BUILD_ID}.war .
+            sudo cp -rv student-${BUILD_ID}.war studentapp.war
+            sudo cp -rv studentapp.war /opt/apache-tomcat-8.5.82/webapps/
+            cd /opt/apache-tomcat-8.5.82/
+            sudo ./bin/catalina.sh start 
+            '''   
+             }
+            }
+        }
     }
 }
