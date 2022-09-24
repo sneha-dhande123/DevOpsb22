@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myconfigmap
+data:
+  username: pritam
+  userpassword: IFJlZGhhdGVjaG8gaGVsb2wgd29ybGQgfCBiYXNlNjRAIyAK
+  userkey: ssh
+  userip: 192.168.0.0
+  ssh-keu.pub: skuydfgckhewvfckahvckuyeavk cyevakciyve
+  ssh-key.private: lsdvclaeuylaeuvcyoaewfvg
