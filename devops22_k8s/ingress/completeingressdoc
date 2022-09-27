@@ -1,0 +1,172 @@
+
+
+
+
+1) eksctl create cluster \
+    --name tonystark \
+    --version 1.22 \
+    --region us-east-1 \
+    --nodegroup-name tonystark-linux-nodes\
+    --node-type t2.medium  --nodes 3 
+	or 
+eksctl create cluster --name tonystark --node-type t2.medium --nodes 3 --nodes-min 1 --nodes-max 3 --region us-east-1
+
+eksctl get clusters --region=us-west-2     
+eksctl get nodegroup --cluster=tonystark1 --region=us-east-2
+eksctl get iamserviceaccount --cluster=tonystark --region=us-east-1
+aws eks --region us-east-1update-kubeconfig --name tonystark
+
+#########create oidc-provider
+2) eksctl utils associate-iam-oidc-provider \
+    --region us-east-1 \
+    --cluster tonystark \
+    --approve
+
+
+##########create IAM policy
+
+3) curl -o iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.2.0/docs/install/iam_policy.json 
+
+4) aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file://iam_policy.json
+ 
+ require aws cli
+
+######copy arn of policy AWSLoadBalancerControllerIAMPolicy from console
+copy ARN 
+ex: arn:aws:iam::786371199753:policy/ALBIngressControllerIAMPolicy
+
+paste in this command 
+5) 
+	 eksctl create iamserviceaccount \
+    --region us-east-1 \
+    --name alb-ingress-controller \
+    --namespace kube-system \
+    --cluster tonystark \
+    --attach-policy-arn arn:aws:iam::630102812633:policy/ALBIngressControllerIAMPolicy \
+    --override-existing-serviceaccounts \
+    --approve
+
+
+###### download helm 
+wget https://get.helm.sh/helm-v3.8.0-linux-amd64.tar.gz
+tar -zxvf helm-v3.8.0-linux-amd64.tar.gz 
+mv linux-amd64/helm /usr/local/bin/helm
+
+6) helm repo add eks https://aws.github.io/eks-charts
+7) helm repo update
+
+
+
+require vpc id -:
+and reffer https://docs.aws.amazon.com/eks/latest/userguide/add-ons-images.html   if you choose different reqion
+
+7) helm install aws-load-balancer-controller eks/aws-load-balancer-controller --set clusterName=tonystark-n kube-system --set serviceAccount.create=false --set serviceAccount.name=alb-ingress-controller --set region=us-east-2 --set vpcId=vpc-03b1faacd80cedbfc --set image.repository=602401143452.dkr.ecr.us-east-2.amazonaws.com/amazon/aws-load-balancer-controller
+
+
+service and deployment yamls
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog
+spec:
+  selector:
+    matchLabels:
+      app: blog
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: blog
+    spec:
+      containers:
+      - name: blog
+        image: pritamkhergade/kubeapp:moto
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: blog
+  name: blog
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: blog
+	
+
+
+kubectl apply -f <blog-yaml>
+
+ingress 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-2048
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/subnets: subnet-02832bf195855ba98, subnet-0695bdf201ba7a637, <public subnet>
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: blog
+              port:
+                number: 80
+        
+		
+kubectl apply -f ingress.yaml
+kubectl get ingress
+
+hit end point of ingress
+
+#############################
+
+for reference
+
+
+
+https://docs.aws.amazon.com/eks/latest/userguide/add-ons-images.html
+
+https://aws.amazon.com/premiumsupport/knowledge-center/eks-alb-ingress-controller-fargate/
+https://aws.amazon.com/premiumsupport/knowledge-center/eks-alb-ingress-aws-waf/
+
+
+
+
+https://medium.com/tensult/alb-ingress-controller-on-aws-eks-45bf8e36020d
+
+https://www.stacksimplify.com/aws-eks/aws-alb-ingress/lean-kubernetes-aws-alb-ingress-basics/
+
+
+https://medium.com/cloudzone/aws-alb-ingress-controller-guide-ec16233f5903
+
+
+
+https://github.com/kubernetes-sigs/aws-load-balancer-controller/tree/main/helm/aws-load-balancer-controller
+
+
+$ kubectl delete deployment -n kube-system alb-ingress-controller
+$ kubectl delete clusterRole alb-ingress-controller
+$ kubectl delete ClusterRoleBinding alb-ingress-controller
+$ kubectl delete ServiceAccount -n kube-system alb-ingress-controller
+
+# Alternatively you can find the version of the controller and delete as follows
+$ kubectl describe deployment  -n kube-system  alb-ingress-controller |grep Image
+      Image:      docker.io/amazon/aws-alb-ingress-controller:v1.1.8
+# You can delete the deployment now
+$ kubectl delete deployment -n kube-system alb-ingress-controller
+# In this case, the version is v1.1.8, the rbac roles can be removed as follows
+$ kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/aws-alb-ingress-controller/v1.1.8/docs/examples/rbac-role.yaml
+
